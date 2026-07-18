@@ -216,3 +216,11 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+# Ignore AI Model and Weights
+distilbert_emotion_model/
+
+# Ignore Database
+users.db
+
+# Ignore Python Cache
+__pycache__/

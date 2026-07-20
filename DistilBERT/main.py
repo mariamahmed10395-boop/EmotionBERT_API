@@ -9,7 +9,8 @@ from pydantic import BaseModel, EmailStr
 from transformers import pipeline
 from sqlalchemy import create_engine, Column, Integer, String, Boolean
 from sqlalchemy.orm import sessionmaker, declarative_base, Session
-
+from peft import PeftModel
+from transformers import AutoModelForSequenceClassification, AutoTokenizer
 # --- 1. إعداد قاعدة البيانات ---
 DATABASE_URL = "sqlite:///./users.db"
 engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
@@ -61,9 +62,19 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     if not user: raise HTTPException(status_code=401, detail="User not found")
     return user
 
-# --- 3. إعداد الذكاء الاصطناعي ---
+# --- 3. إعداد الذكاء الاصطناعي مع LoRA ---
 app = FastAPI(title="DistilBERT Emotion API")
-classifier = pipeline("text-classification", model=os.path.join(os.path.dirname(__file__), "distilbert_emotion_model"))
+
+# مسار الموديل الأصلي (الذي تدربت عليه في البداية)
+base_model_path = os.path.join(os.path.dirname(__file__), "distilbert_emotion_model")
+
+# تحميل الموديل الأساسي ثم تركيب الـ LoRA Adapter عليه
+base_model = AutoModelForSequenceClassification.from_pretrained(base_model_path)
+model = PeftModel.from_pretrained(base_model, base_model_path) 
+tokenizer = AutoTokenizer.from_pretrained(base_model_path)
+
+# تحويل الموديل لـ pipeline
+classifier = pipeline("text-classification", model=model, tokenizer=tokenizer, device=-1)
 
 EMOTION_MAPPING = {"LABEL_0": "Sadness 😢", "LABEL_1": "Joy 😃", "LABEL_2": "Love 🥰", "LABEL_3": "Anger 😠", "LABEL_4": "Fear 😨", "LABEL_5": "Surprise 😲"}
 

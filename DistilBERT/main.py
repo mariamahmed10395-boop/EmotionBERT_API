@@ -65,18 +65,26 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
 # --- 3. إعداد الذكاء الاصطناعي مع LoRA ---
 app = FastAPI(title="DistilBERT Emotion API")
 
-# مسار الموديل الأصلي (الذي تدربت عليه في البداية)
-base_model_path = os.path.join(os.path.dirname(__file__), "distilbert_emotion_model")
+# مسار مجلد الـ LoRA المحفوظ محلياً
+adapter_path = os.path.join(os.path.dirname(__file__), "distilbert_emotion_model")
+base_model_checkpoint = "distilbert-base-uncased"
 
-# تحميل الموديل الأساسي ثم تركيب الـ LoRA Adapter عليه
-base_model = AutoModelForSequenceClassification.from_pretrained(base_model_path)
-model = PeftModel.from_pretrained(base_model, base_model_path) 
-tokenizer = AutoTokenizer.from_pretrained(base_model_path)
+# تحميل الموديل الأصلي أولاً ثم تركيب الـ LoRA Adapter عليه
+base_model = AutoModelForSequenceClassification.from_pretrained(base_model_checkpoint, num_labels=6)
+model = PeftModel.from_pretrained(base_model, adapter_path) 
+tokenizer = AutoTokenizer.from_pretrained(adapter_path)
 
-# تحويل الموديل لـ pipeline
+# تحويل الموديل لـ pipeline (مع تحديد device=0 لو فيه كارت شاشة، أو -1 للـ CPU)
 classifier = pipeline("text-classification", model=model, tokenizer=tokenizer, device=-1)
 
-EMOTION_MAPPING = {"LABEL_0": "Sadness 😢", "LABEL_1": "Joy 😃", "LABEL_2": "Love 🥰", "LABEL_3": "Anger 😠", "LABEL_4": "Fear 😨", "LABEL_5": "Surprise 😲"}
+EMOTION_MAPPING = {
+    "LABEL_0": "Sadness 😢", 
+    "LABEL_1": "Joy 😃", 
+    "LABEL_2": "Love 🥰", 
+    "LABEL_3": "Anger 😠", 
+    "LABEL_4": "Fear 😨", 
+    "LABEL_5": "Surprise 😲"
+}
 
 # --- 4. المسارات (Endpoints) ---
 class UserCreate(BaseModel):
@@ -106,7 +114,14 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
         raise HTTPException(status_code=401, detail="Account not verified or invalid credentials")
     return {"access_token": create_access_token(data={"sub": user.email}), "token_type": "bearer"}
 
+class TextRequest(BaseModel):
+    text: str
+
 @app.post("/ml/classify")
-def classify_text(text: str, current_user: User = Depends(get_current_user)):
-    prediction = classifier(text)
-    return {"Category": EMOTION_MAPPING.get(prediction[0]['label']), "Confidence": prediction[0]['score']}
+def classify_text(request: TextRequest, current_user: User = Depends(get_current_user)):
+    prediction = classifier(request.text)
+    raw_label = prediction[0]['label']
+    return {
+        "Category": EMOTION_MAPPING.get(raw_label, raw_label), 
+        "Confidence": prediction[0]['score']
+    }
